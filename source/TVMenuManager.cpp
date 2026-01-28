@@ -82,9 +82,9 @@ namespace TVMenuManager {
         OSTime elapsed = OSGetSystemTime() - pressed;
 
         // We wait a bit to enable the TV menu, so it doesn't show up on the first press.
-        const OSTime menuDelay = OSMillisecondsToTicks(500);
+        const OSTime menuDelay = OSMillisecondsToTicks(50);
         if (elapsed >= menuDelay && isBlocked) {
-            OSReport("Unblocking the TV menu\n");
+            OSReport("Unblocking the TV menu on VPAD %d\n", int(channel));
             setBlockState(channel, false);
             OSMemoryBarrier();
             return;
@@ -93,7 +93,7 @@ namespace TVMenuManager {
         // If too much time passed, and the TV menu is not open, block it again (if needed.)
         const OSTime timeout = OSMillisecondsToTicks(500);
         if (elapsed > timeout && !VPADGetTVMenuStatus(channel)) {
-            OSReport("TV timeout reached\n");
+            OSReport("TV button timeout reached on VPAD %d\n", int(channel));
             updateBlockState(channel);
             resetTimeouts(channel);
             OSMemoryBarrier();
