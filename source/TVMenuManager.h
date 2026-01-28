@@ -8,11 +8,9 @@ namespace TVMenuManager {
 
     void unregisterCombo();
 
-    void init(VPADChan channel, bool block);
+    void updateTimer(VPADChan channel);
 
-    void reset(VPADChan channel);
-
-    void update(VPADChan channel);
+    void updateBlockState(VPADChan channel);
 
     void updateBlockState();
     

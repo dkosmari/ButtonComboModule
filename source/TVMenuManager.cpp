@@ -12,17 +12,20 @@ namespace TVMenuManager {
 
     namespace {
 
-        static ButtonComboModule_ComboHandle sComboHandle;
+        ButtonComboModule_ComboHandle sComboHandle;
         // Note: we need to wait a bit to enable the TV menu, otherwise it shows up on the
         // first press. The sTVPressTime variable is used to keep track of how much time
         // has passedsince the last TV button press.
-        static OSTime sPressTime[2];
-        static bool sIsBlocked[2];
+        OSTime sPressTime[2];
+        bool sIsBlocked[2];
 
-        static void setBlockState(VPADChan channel, bool block)
-        {
+        void setBlockState(VPADChan channel, bool block) {
             VPADSetTVMenuInvalid(channel, block);
             sIsBlocked[channel] = block;
+        }
+
+        void resetTimeouts(VPADChan channel) {
+            sPressTime[channel] = 0;
         }
 
         void TVComboCallback(ButtonComboModule_ControllerTypes triggeredBy,
@@ -52,7 +55,7 @@ namespace TVMenuManager {
     void registerCombo() {
         ButtonComboModule_ComboOptions opt               = {};
         opt.version                                      = BUTTON_COMBO_MODULE_COMBO_OPTIONS_VERSION;
-        opt.metaOptions.label                            = "TV remote overlay combo";
+        opt.metaOptions.label                            = "TV menu combo";
         opt.callbackOptions.callback                     = TVComboCallback;
         opt.callbackOptions.context                      = {};
         opt.buttonComboOptions.type                      = BUTTON_COMBO_MODULE_COMBO_TYPE_PRESS_DOWN_OBSERVER;
@@ -68,18 +71,8 @@ namespace TVMenuManager {
         ButtonComboModule_RemoveButtonCombo(sComboHandle);
     }
 
-    void init(VPADChan channel, bool block) {
-        setBlockState(channel, block);
-        reset(channel);
-    }
-
-    void reset(VPADChan channel) {
-        sPressTime[channel] = 0;
-        OSMemoryBarrier();
-    }
-
     // Called from VPADRead() to timeout the TV menu unblock.
-    void update(VPADChan channel) {
+    void updateTimer(VPADChan channel) {
 
         OSTime pressed = sPressTime[channel];
         if (pressed == 0)
@@ -100,25 +93,29 @@ namespace TVMenuManager {
         // If too much time passed, and the TV menu is not open, block it again (if needed.)
         const OSTime timeout = OSMillisecondsToTicks(500);
         if (elapsed > timeout && !VPADGetTVMenuStatus(channel)) {
-            bool shouldBlock = gButtonComboManager->hasActiveComboWithTVButton();
-            OSReport("TV timeout reached, setting TV Menu to %s\n",
-                     shouldBlock ? "blocked" : "unblocked");
-            setBlockState(channel, shouldBlock);
-            sPressTime[channel] = 0;
+            OSReport("TV timeout reached\n");
+            updateBlockState(channel);
+            resetTimeouts(channel);
             OSMemoryBarrier();
         }
+    }
+
+    void updateBlockState(VPADChan channel) {
+        bool shouldBlock = false;
+        if (gButtonComboManager)
+            shouldBlock = gButtonComboManager->hasActiveComboWithTVButton();
+        OSReport("Update block state on VPAD %d to %s\n",
+                 int(channel),
+                 shouldBlock ? "blocked" : "unblocked");
+        setBlockState(channel, shouldBlock);
+        OSMemoryBarrier();
     }
 
     // Called every time after a combo is added, removed, modified.
     void updateBlockState()
     {
-        if (!gButtonComboManager)
-            return;
-        bool shouldBlock = gButtonComboManager->hasActiveComboWithTVButton();
-        setBlockState(VPAD_CHAN_0, shouldBlock);
-        setBlockState(VPAD_CHAN_1, shouldBlock);
-
-        OSMemoryBarrier();
+        updateBlockState(VPAD_CHAN_0);
+        updateBlockState(VPAD_CHAN_1);
     }
 
 } // namespace TVMenuManager

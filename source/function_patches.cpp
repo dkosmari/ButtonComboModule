@@ -22,7 +22,7 @@ DECL_FUNCTION(int32_t, VPADRead, VPADChan chan, VPADStatus *buffer, uint32_t buf
         *error = real_error;
     }
 
-    TVMenuManager::update(chan);
+    TVMenuManager::updateTimer(chan);
 
     return result;
 }
@@ -44,11 +44,7 @@ DECL_FUNCTION(void, __VPADBASEAttachCallback, CCRCDCCallbackData *data, void *co
     real___VPADBASEAttachCallback(data, context);
 
     if (data) {
-        if (data->attached && gButtonComboManager) {
-            TVMenuManager::init(data->chan, gButtonComboManager->hasActiveComboWithTVButton());
-        } else {
-            TVMenuManager::reset(data->chan);
-        }
+        TVMenuManager::updateBlockState(data->chan);
     }
 }
 

@@ -337,7 +337,7 @@ std::optional<std::shared_ptr<ButtonComboInfoIF>> ButtonComboManager::CreateComb
 
 bool ButtonComboManager::hasActiveComboWithTVButton() {
     std::lock_guard lock(mMutex);
-    return std::ranges::any_of(mCombos, [](const auto &combo) { return combo->getStatus() == BUTTON_COMBO_MODULE_COMBO_STATUS_VALID && combo->getCombo() & BCMPAD_BUTTON_TV; });
+    return std::ranges::any_of(mCombos, [](const auto &combo) { return (combo->getStatus() == BUTTON_COMBO_MODULE_COMBO_STATUS_VALID) && (combo->getCombo() & BCMPAD_BUTTON_TV) && (!combo->isObserver()); });
 }
 
 ButtonComboModule_ComboStatus ButtonComboManager::CheckComboStatus(const ButtonComboInfoIF &other) {
