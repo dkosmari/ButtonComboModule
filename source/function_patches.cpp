@@ -22,7 +22,7 @@ DECL_FUNCTION(int32_t, VPADRead, VPADChan chan, VPADStatus *buffer, uint32_t buf
         *error = real_error;
     }
 
-    updateTVStatus(chan);
+    TVOverlayManager::update(chan);
 
     return result;
 }
@@ -43,22 +43,13 @@ struct WUT_PACKED CCRCDCCallbackData {
 DECL_FUNCTION(void, __VPADBASEAttachCallback, CCRCDCCallbackData *data, void *context) {
     real___VPADBASEAttachCallback(data, context);
 
-#if 0
-    if (data && data->attached) {
-        if (const auto comboManager = gButtonComboManager; comboManager) {
-            const bool block = comboManager->hasActiveComboWithTVButton();
-            VPADSetTVMenuInvalid(data->chan, block);
-        }
-    }
-#else
     if (data) {
         if (data->attached && gButtonComboManager) {
-            initTVStatus(data->chan, gButtonComboManager->hasActiveComboWithTVButton());
+            TVOverlayManager::init(data->chan, gButtonComboManager->hasActiveComboWithTVButton());
         } else {
-            resetTVStatus(data->chan);
+            TVOverlayManager::reset(data->chan);
         }
     }
-#endif
 }
 
 function_replacement_data_t function_replacements[] = {

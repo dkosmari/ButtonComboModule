@@ -365,7 +365,7 @@ void ButtonComboManager::AddCombo(std::shared_ptr<ButtonComboInfoIF> newComboInf
     outHandle = newComboInfo->getHandle();
     mCombos.emplace_front(std::move(newComboInfo));
 
-    updateTVMenuBlocking();
+    TVOverlayManager::updateBlockState();
 }
 
 ButtonComboModule_Error ButtonComboManager::RemoveCombo(ButtonComboModule_ComboHandle handle) {
@@ -379,7 +379,7 @@ ButtonComboModule_Error ButtonComboManager::RemoveCombo(ButtonComboModule_ComboH
     if (!remove_first_if(mCombos, [handle](const auto &combo) { return combo->getHandle() == handle; })) {
         DEBUG_FUNCTION_LINE_WARN("Failed to remove combo by handle %p", handle.handle);
     } else {
-        updateTVMenuBlocking();
+        TVOverlayManager::updateBlockState();
     }
 
     return BUTTON_COMBO_MODULE_ERROR_SUCCESS;
@@ -476,7 +476,7 @@ int ButtonComboManager::UpdateInputsLocked(const ButtonComboModule_ControllerTyp
         mCombosToRemove.clear();
 
         // Update TV Menu blocking status once after all removals
-        updateTVMenuBlocking();
+        TVOverlayManager::updateBlockState();
     }
     return first_trigger;
 }
@@ -626,7 +626,7 @@ ButtonComboModule_Error ButtonComboManager::UpdateButtonCombo(const ButtonComboM
     comboInfo->setStatus(CheckComboStatus(*comboInfo));
     outComboStatus = comboInfo->getStatus();
 
-    updateTVMenuBlocking();
+    TVOverlayManager::updateBlockState();
 
     return BUTTON_COMBO_MODULE_ERROR_SUCCESS;
 }

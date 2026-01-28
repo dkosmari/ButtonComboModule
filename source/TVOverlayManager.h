@@ -2,14 +2,19 @@
 
 #include <vpad/input.h>
 
-void registerTVCombo();
+namespace TVOverlayManager 
+{
+    
+    void registerCombo();
 
-void unregisterTVCombo();
+    void unregisterCombo();
 
-void initTVStatus(VPADChan channel, bool block);
+    void init(VPADChan channel, bool block);
 
-void resetTVStatus(VPADChan channel);
+    void reset(VPADChan channel);
 
-void updateTVStatus(VPADChan channel);
+    void update(VPADChan channel);
 
-void updateTVMenuBlocking();
+    void updateBlockState();
+    
+} // namespace TVOverlayManager

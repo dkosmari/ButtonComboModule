@@ -36,13 +36,13 @@ WUMS_INITIALIZE() {
 
     gButtonComboManager = std::make_unique<ButtonComboManager>();
 
-    registerTVCombo();
+    TVOverlayManager::registerCombo();
 
     deinitLogging();
 }
 
 WUMS_DEINITIALIZE() {
-    unregisterTVCombo();
+    TVOverlayManager::unregisterCombo();
     gButtonComboManager.reset();
 }
 
