@@ -1,6 +1,6 @@
 #include "ButtonComboInfo.h"
 #include "ButtonComboManager.h"
-#include "TVOverlayManager.h"
+#include "TVMenuManager.h"
 #include "globals.h"
 
 #include <function_patcher/fpatching_defines.h>
@@ -22,7 +22,7 @@ DECL_FUNCTION(int32_t, VPADRead, VPADChan chan, VPADStatus *buffer, uint32_t buf
         *error = real_error;
     }
 
-    TVOverlayManager::update(chan);
+    TVMenuManager::update(chan);
 
     return result;
 }
@@ -45,9 +45,9 @@ DECL_FUNCTION(void, __VPADBASEAttachCallback, CCRCDCCallbackData *data, void *co
 
     if (data) {
         if (data->attached && gButtonComboManager) {
-            TVOverlayManager::init(data->chan, gButtonComboManager->hasActiveComboWithTVButton());
+            TVMenuManager::init(data->chan, gButtonComboManager->hasActiveComboWithTVButton());
         } else {
-            TVOverlayManager::reset(data->chan);
+            TVMenuManager::reset(data->chan);
         }
     }
 }

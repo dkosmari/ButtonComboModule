@@ -1,4 +1,4 @@
-#include "TVOverlayManager.h"
+#include "TVMenuManager.h"
 #include "ButtonComboManager.h"
 #include "export.h"
 #include "globals.h"
@@ -8,8 +8,7 @@
 #include <coreinit/debug.h>
 #include <coreinit/time.h>
 
-namespace TVOverlayManager
-{
+namespace TVMenuManager {
 
     namespace {
 
@@ -122,4 +121,4 @@ namespace TVOverlayManager
         OSMemoryBarrier();
     }
 
-} // namespace TVOverlayManager
+} // namespace TVMenuManager

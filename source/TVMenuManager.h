@@ -2,8 +2,7 @@
 
 #include <vpad/input.h>
 
-namespace TVOverlayManager 
-{
+namespace TVMenuManager {
     
     void registerCombo();
 
@@ -17,4 +16,4 @@ namespace TVOverlayManager
 
     void updateBlockState();
     
-} // namespace TVOverlayManager
+} // namespace TVMenuManager
