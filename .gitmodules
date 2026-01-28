@@ -1,0 +1,9 @@
+[submodule "external/libbuttoncombo"]
+	path = external/libbuttoncombo
+	url = https://github.com/wiiu-env/libbuttoncombo.git
+[submodule "external/libfunctionpatcher"]
+	path = external/libfunctionpatcher
+	url = https://github.com/wiiu-env/libfunctionpatcher.git
+[submodule "external/WiiUModuleSystem"]
+	path = external/WiiUModuleSystem
+	url = https://github.com/wiiu-env/WiiUModuleSystem.git

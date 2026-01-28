@@ -9,25 +9,38 @@
 #include <coreinit/time.h>
 
 static ButtonComboModule_ComboHandle sTVButtonHandle;
-static OSTime sTVPressed[2]; // when the button was last pressed, or zero if timeout expired
+static OSTime sTVPressTime[2];
 static bool sTVMenuBlocked[2];
+
+static void setTVMenuBlock(VPADChan channel, bool block)
+{
+    VPADSetTVMenuInvalid(channel, block);
+    sTVMenuBlocked[channel] = block;
+}
 
 static void TVComboCallback(ButtonComboModule_ControllerTypes triggeredBy,
                             ButtonComboModule_ComboHandle,
                             void *) {
-    VPADChan chan;
+    VPADChan channel;
     switch (triggeredBy) {
         case BUTTON_COMBO_MODULE_CONTROLLER_VPAD_0:
-            chan = VPAD_CHAN_0;
+            channel = VPAD_CHAN_0;
             break;
         case BUTTON_COMBO_MODULE_CONTROLLER_VPAD_1:
-            chan = VPAD_CHAN_1;
+            channel = VPAD_CHAN_1;
             break;
         default:
             return;
     }
+
     // OSReport("TV pressed\n");
-    sTVPressed[chan] = OSGetSystemTime();
+
+    // Note: we need to wait a bit to enable the TV menu, otherwise it shows up on the
+    // first press. The sTVPressTime variable is used to keep track of how much time we
+    // need to wait.
+
+    sTVPressTime[channel] = OSGetSystemTime();
+
     OSMemoryBarrier();
 }
 
@@ -54,30 +67,52 @@ void initTVStatus(VPADChan channel, bool block) {
     VPADSetTVMenuInvalid(channel, block);
     sTVMenuBlocked[channel] = block;
 
-    sTVPressed[channel] = 0;
+    sTVPressTime[channel] = 0;
     OSMemoryBarrier();
 }
 
 void resetTVStatus(VPADChan channel) {
-    sTVPressed[channel] = 0;
+    sTVPressTime[channel] = 0;
     OSMemoryBarrier();
 }
 
+// Called from VPADRead() to time-out the TV button unblock.
 void updateTVStatus(VPADChan channel) {
-    if (sTVPressed[channel]) {
-        uint64_t elapsed = OSGetSystemTime() - sTVPressed[channel];
-        if (elapsed > OSMillisecondsToTicks(100) && sTVMenuBlocked[channel]) {
-            // OSReport("TV menu unblocked\n");
-            VPADSetTVMenuInvalid(channel, false);
-            sTVMenuBlocked[channel] = false;
-        }
-        if (elapsed > OSMillisecondsToTicks(1000) && !VPADGetTVMenuStatus(channel)) {
-            bool block = gButtonComboManager->hasActiveComboWithTVButton();
-            // OSReport("TV timeout reached, setting TV Menu block to %s\n",
-            //          block ? "blocked" : "unblocked");
-            VPADSetTVMenuInvalid(channel, block);
-            sTVMenuBlocked[channel] = block;
-            sTVPressed[channel]     = 0;
-        }
+
+    OSTime pressed = sTVPressTime[channel];
+    if (pressed == 0)
+        return;
+
+    bool isBlocked = sTVMenuBlocked[channel];
+    OSTime elapsed = OSGetSystemTime() - pressed;
+
+    // We wait a bit to enable the TV menu, so it doesn't show up on the first press.
+    const OSTime menuDelay = OSMillisecondsToTicks(100);
+    if (elapsed >= menuDelay && isBlocked) {
+        OSReport("Unblocking the TV menu\n");
+        setTVMenuBlock(channel, false);
+        return;
     }
+
+    // If too much time passed, and the TV menu is not open, block it again (if needed.)
+    const OSTime timeout = OSMillisecondsToTicks(1000);
+    if (elapsed > timeout && !VPADGetTVMenuStatus(channel)) {
+        bool shouldBlock = gButtonComboManager->hasActiveComboWithTVButton();
+        OSReport("TV timeout reached, setting TV Menu to %s\n",
+                 shouldBlock ? "blocked" : "unblocked");
+        setTVMenuBlock(channel, shouldBlock);
+        sTVPressTime[channel] = 0;
+    }
+}
+
+// Called every time after a combo is added, removed, modified.
+void updateTVMenuBlocking()
+{
+    if (!gButtonComboManager)
+        return;
+    bool shouldBlock = gButtonComboManager->hasActiveComboWithTVButton();
+    setTVMenuBlock(VPAD_CHAN_0, shouldBlock);
+    setTVMenuBlock(VPAD_CHAN_1, shouldBlock);
+
+    OSMemoryBarrier();
 }

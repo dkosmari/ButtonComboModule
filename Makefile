@@ -8,9 +8,13 @@ endif
 
 TOPDIR ?= $(CURDIR)
 
-include $(DEVKITPRO)/wums/share/wums_rules
+EXTERNAL_LIBBUTTONCOMBO_DIR := $(TOPDIR)/external/libbuttoncombo
+EXTERNAL_LIBFUNCTIONPATCHER_DIR := $(TOPDIR)/external/libfunctionpatcher
+EXTERNAL_WUMS_DIR := $(TOPDIR)/external/WiiUModuleSystem
 
-WUMS_ROOT := $(DEVKITPRO)/wums
+WUMS_ROOT := $(EXTERNAL_WUMS_DIR)
+include $(WUMS_ROOT)/share/wums_rules
+
 WUT_ROOT := $(DEVKITPRO)/wut
 #-------------------------------------------------------------------------------
 # TARGET is the name of the output
@@ -25,10 +29,11 @@ SOURCES		:=	source
 DATA		:=	data
 INCLUDES	:=	source
 
+
 #-------------------------------------------------------------------------------
 # options for code generation
 #-------------------------------------------------------------------------------
-CFLAGS	:=	-Wall -Wextra -O2 -ffunction-sections\
+CFLAGS	:=	-Wall -Wextra -Werror -Os -ffunction-sections\
 			$(MACHDEP)
 
 CFLAGS	+=	$(INCLUDE) -D__WIIU__ -D__WUT__
@@ -54,7 +59,12 @@ LIBS	:= -lwums -lwut -lfunctionpatcher
 # list of directories containing libraries, this must be the top level
 # containing include and lib
 #-------------------------------------------------------------------------------
-LIBDIRS	:= $(PORTLIBS) $(WUT_ROOT) $(WUMS_ROOT)
+LIBDIRS	:= \
+	$(EXTERNAL_LIBBUTTONCOMBO_DIR) \
+	$(EXTERNAL_LIBFUNCTIONPATCHER_DIR) \
+	$(PORTLIBS) \
+	$(WUT_ROOT) \
+	$(WUMS_ROOT)
 
 #-------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional
@@ -110,6 +120,9 @@ all: $(BUILD)
 #-------------------------------------------------------------------------------
 
 $(BUILD):
+	@$(MAKE) --no-print-directory -C $(EXTERNAL_LIBBUTTONCOMBO_DIR)
+	@$(MAKE) --no-print-directory -C $(EXTERNAL_LIBFUNCTIONPATCHER_DIR)
+	@$(MAKE) --no-print-directory -C $(EXTERNAL_WUMS_DIR) TOPDIR=$(WUMS_ROOT)
 	@$(shell [ ! -d $(BUILD) ] && mkdir -p $(BUILD))
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
@@ -117,6 +130,9 @@ $(BUILD):
 clean:
 	@echo clean ...
 	@rm -fr $(BUILD) $(TARGET).wms $(TARGET).elf
+	@$(MAKE) --no-print-directory -C $(EXTERNAL_LIBBUTTONCOMBO_DIR) clean
+	@$(MAKE) --no-print-directory -C $(EXTERNAL_LIBFUNCTIONPATCHER_DIR) clean
+	@$(MAKE) --no-print-directory -C $(EXTERNAL_WUMS_DIR) TOPDIR=$(WUMS_ROOT) clean
 
 #-------------------------------------------------------------------------------
 else

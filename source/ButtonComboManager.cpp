@@ -2,6 +2,7 @@
 #include "ButtonComboInfoDown.h"
 #include "ButtonComboInfoHold.h"
 #include "logger.h"
+#include "TVOverlayManager.h"
 
 #include <buttoncombo/defines.h>
 
@@ -9,6 +10,8 @@
 #include <padscore/kpad.h>
 
 #include <algorithm>
+#include <ranges>
+#include <span>
 #include <vector>
 
 namespace {
@@ -362,20 +365,21 @@ void ButtonComboManager::AddCombo(std::shared_ptr<ButtonComboInfoIF> newComboInf
     outHandle = newComboInfo->getHandle();
     mCombos.emplace_front(std::move(newComboInfo));
 
-    const auto block = hasActiveComboWithTVButton();
-    VPADSetTVMenuInvalid(VPAD_CHAN_0, block);
-    VPADSetTVMenuInvalid(VPAD_CHAN_1, block);
+    updateTVMenuBlocking();
 }
 
 ButtonComboModule_Error ButtonComboManager::RemoveCombo(ButtonComboModule_ComboHandle handle) {
     std::lock_guard lock(mMutex);
-    if (!remove_first_if(mCombos, [handle](const auto &combo) { return combo->getHandle() == handle; })) {
-        DEBUG_FUNCTION_LINE_WARN("Failed to remove combo by handle %08X", handle);
-    } else {
-        const auto block = hasActiveComboWithTVButton();
 
-        VPADSetTVMenuInvalid(VPAD_CHAN_0, block);
-        VPADSetTVMenuInvalid(VPAD_CHAN_1, block);
+    if (mIsIterating) {
+        mCombosToRemove.push_back(handle);
+        return BUTTON_COMBO_MODULE_ERROR_SUCCESS;
+    }
+
+    if (!remove_first_if(mCombos, [handle](const auto &combo) { return combo->getHandle() == handle; })) {
+        DEBUG_FUNCTION_LINE_WARN("Failed to remove combo by handle %p", handle.handle);
+    } else {
+        updateTVMenuBlocking();
     }
 
     return BUTTON_COMBO_MODULE_ERROR_SUCCESS;
@@ -408,45 +412,73 @@ void ButtonComboManager::UpdateInputVPAD(const VPADChan chan, VPADStatus *buffer
         return;
     }
 
+    bool buttonsAreLoose = VPADGetButtonProcMode(chan) == 0;
+    int comboStatus = -1;
+
     {
         std::lock_guard lock(mMutex);
-        const auto controller   = convert(chan);
-        uint32_t usedBufferSize = 1;
-        // Fix games like TP HD
-        if (VPADGetButtonProcMode(chan) == 1) {
-            usedBufferSize = bufferSize;
-        }
+        const auto controller = convert(chan);
 
-        if (usedBufferSize > mVPADButtonBuffer.size()) {
-            mVPADButtonBuffer.resize(usedBufferSize);
-        }
+        // Fix games like TP HD
+        mVPADButtonBuffer.resize(buttonsAreLoose ? 1 : bufferSize);
 
         // the order of the "buffer" data is new -> old, but we want it to be in old -> new
-        for (uint32_t i = 0; i < usedBufferSize; i++) {
-            mVPADButtonBuffer[usedBufferSize - i - 1] = remapVPADButtons(buffer[i].hold);
+        for (std::size_t i = 0; i < mVPADButtonBuffer.size(); i++) {
+            std::views::reverse(mVPADButtonBuffer)[i] = remapVPADButtons(buffer[i].hold);
         }
 
-        for (const auto &combo : mCombos) {
-            if (combo->getStatus() != BUTTON_COMBO_MODULE_COMBO_STATUS_VALID) {
-                continue;
-            }
-            int activated = combo->UpdateInput(controller, std::span(mVPADButtonBuffer.data(), usedBufferSize));
-            if (activated >= 0 && !combo->isObserver()) {
-                // suppress all buttons triggered
-                uint32_t triggered = buffer[usedBufferSize - activated - 1].trigger;
-                mVPADSuppressed[chan] |= triggered;
+        comboStatus = UpdateInputsLocked(controller, mVPADButtonBuffer);
+    }
+
+    // Begin button suppression logic.
+    auto &suppressed = mVPADSuppressed[static_cast<unsigned>(chan)];
+
+    // Check every buffer entry, from old to new.
+    for (int i = bufferSize - 1; i >= 0; --i) {
+        auto& entry = buffer[i];
+        if ((buttonsAreLoose && comboStatus != -1) || i == comboStatus) {
+            // This is the entry that activated a combo, the triggers tell which buttons
+            // to suppress.
+            suppressed |= entry.trigger;
+        }
+        // Re-enable all buttons released.
+        suppressed &= ~entry.release;
+
+        // Don't let the application see the suppressed buttons
+        entry.hold    &= ~suppressed;
+        entry.trigger &= ~suppressed;
+        entry.release &= ~suppressed;
+    }
+}
+
+int ButtonComboManager::UpdateInputsLocked(const ButtonComboModule_ControllerTypes controller, const std::span<uint32_t> pressedButtons) {
+    int first_trigger = -1;
+    std::lock_guard lock(mMutex);
+    mIsIterating++;
+    for (const auto &combo : mCombos) {
+        if (combo->getStatus() != BUTTON_COMBO_MODULE_COMBO_STATUS_VALID) {
+            continue;
+        }
+        int idx = combo->UpdateInput(controller, pressedButtons);
+        if (idx != -1) {
+            if (first_trigger == -1 || idx < first_trigger) {
+                first_trigger = idx;
             }
         }
     }
-    // hide all suppressed buttons from the game, iterate from oldest sample to newest
-    for (uint32_t i = bufferSize - 1; i + 1 > 0; --i) {
-        // released buttons stop being suppressed
-        mVPADSuppressed[chan] &= ~buffer[i].release;
-        // hide the suppressed buttons
-        buffer[i].trigger &= ~mVPADSuppressed[chan];
-        buffer[i].hold &= ~mVPADSuppressed[chan];
-        buffer[i].release &= ~mVPADSuppressed[chan];
+    mIsIterating--;
+
+    // Remove pending removals if existing
+    if (mIsIterating == 0 && !mCombosToRemove.empty()) {
+        for (auto handle : mCombosToRemove) {
+            remove_first_if(mCombos, [handle](const auto &combo) { return combo->getHandle() == handle; });
+        }
+        mCombosToRemove.clear();
+
+        // Update TV Menu blocking status once after all removals
+        updateTVMenuBlocking();
     }
+    return first_trigger;
 }
 
 void ButtonComboManager::UpdateInputWPAD(const WPADChan chan, WPADStatus *data) {
@@ -459,104 +491,78 @@ void ButtonComboManager::UpdateInputWPAD(const WPADChan chan, WPADStatus *data) 
         return;
     }
 
-    auto &coreBtns = mWPADCoreBtns[chan];
-    auto &extBtns  = mWPADExtBtns[chan];
+    unsigned ctrlIdx = static_cast<unsigned>(chan);
+    auto &coreBtnTracker = mWPADCoreBtns[ctrlIdx];
+    auto &extBtnTracker  = mWPADExtBtns[ctrlIdx];
 
-    if (mWPADExtension[chan] != data->extensionType) {
-        mWPADExtension[chan] = data->extensionType;
-        extBtns.reset();
+    coreBtnTracker.update(data->buttons);
+
+    // Do not check for combos while the combo detection is active
+    if (mInButtonComboDetection) {
+        return;
     }
+
+    const auto controller   = convert(chan);
+    uint32_t pressedButtons = {};
     switch (data->extensionType) {
         case WPAD_EXT_CORE:
         case WPAD_EXT_NUNCHUK:
         case WPAD_EXT_MPLUS:
-        case WPAD_EXT_MPLUS_NUNCHUK:
-            coreBtns.update(data->buttons);
-            extBtns.reset();
+        case WPAD_EXT_MPLUS_NUNCHUK: {
+            pressedButtons = remapWiiMoteButtons(data->buttons);
             break;
+        }
         case WPAD_EXT_CLASSIC:
         case WPAD_EXT_MPLUS_CLASSIC: {
-            auto cdata = reinterpret_cast<WPADStatusClassic *>(data);
-            coreBtns.update(cdata->core.buttons);
-            extBtns.update(cdata->buttons);
+            const auto classic = reinterpret_cast<WPADStatusClassic *>(data);
+            pressedButtons     = remapClassicButtons(classic->buttons);
+            extBtnTracker.update(classic->buttons);
             break;
         }
         case WPAD_EXT_PRO_CONTROLLER: {
-            auto pdata = reinterpret_cast<WPADStatusProController *>(data);
-            coreBtns.reset();
-            extBtns.update(pdata->buttons);
+            const auto proController = reinterpret_cast<WPADStatusProController *>(data);
+            pressedButtons           = remapProButtons(proController->buttons);
+            extBtnTracker.update(proController->buttons);
             break;
         }
-        default: // early out when we don't know how to handle extension
+        default:
             return;
     }
 
-    // Do not check for combos while the combo detection is active
-    if (!mInButtonComboDetection) {
-        const auto controller   = convert(chan);
-        uint32_t pressedButtons = {};
-        switch (data->extensionType) {
-            case WPAD_EXT_CORE:
-            case WPAD_EXT_NUNCHUK:
-            case WPAD_EXT_MPLUS:
-            case WPAD_EXT_MPLUS_NUNCHUK: {
-                pressedButtons = remapWiiMoteButtons(data->buttons);
-                break;
-            }
-            case WPAD_EXT_CLASSIC:
-            case WPAD_EXT_MPLUS_CLASSIC: {
-                const auto classic = reinterpret_cast<WPADStatusClassic *>(data);
-                pressedButtons     = remapClassicButtons(classic->buttons);
-                break;
-            }
-            case WPAD_EXT_PRO_CONTROLLER: {
-                const auto proController = reinterpret_cast<WPADStatusProController *>(data);
-                pressedButtons           = remapProButtons(proController->buttons);
-                break;
-            }
-        }
-        {
-            std::lock_guard lock(mMutex);
-            for (const auto &combo : mCombos) {
-                if (combo->getStatus() != BUTTON_COMBO_MODULE_COMBO_STATUS_VALID) {
-                    continue;
-                }
-                int activated = combo->UpdateInput(controller, std::span(&pressedButtons, 1));
-                if (activated >= 0 && !combo->isObserver()) {
-                    coreBtns.blockTriggered();
-                    extBtns.blockTriggered();
-                }
-            }
-        }
+    // Begin button suppression logic.
+    int comboStatus = UpdateInputsLocked(controller, std::span(&pressedButtons, 1));
+    if (comboStatus != -1) {
+        // A button was activated, let's suppress all trigger buttons.
+        coreBtnTracker.blockTriggered();
+        extBtnTracker.blockTriggered();
     }
 
-    coreBtns.unblockReleased();
-    extBtns.unblockReleased();
+    // For both core and extensions:
+    // - Re-enable all buttons released.
+    // - Don't let the application see the suppressed buttons.
 
-    // modify data, to hide all suppressed buttons from the game
+    coreBtnTracker.unblockReleased();
+    coreBtnTracker.suppressButtons(data->buttons);
     switch (data->extensionType) {
-        case WPAD_EXT_CORE:
-        case WPAD_EXT_NUNCHUK:
-        case WPAD_EXT_MPLUS:
-        case WPAD_EXT_MPLUS_NUNCHUK:
-            coreBtns.suppressButtons(data->buttons);
-            break;
         case WPAD_EXT_CLASSIC:
         case WPAD_EXT_MPLUS_CLASSIC: {
-            auto cdata = reinterpret_cast<WPADStatusClassic *>(data);
-            coreBtns.suppressButtons(cdata->core.buttons);
-            extBtns.suppressButtons(cdata->buttons);
+            extBtnTracker.unblockReleased();
+            const auto classic = reinterpret_cast<WPADStatusClassic *>(data);
+            extBtnTracker.suppressButtons(classic->buttons);
             break;
         }
         case WPAD_EXT_PRO_CONTROLLER: {
-            auto pdata = reinterpret_cast<WPADStatusProController *>(data);
-            extBtns.suppressButtons(pdata->buttons);
+            extBtnTracker.unblockReleased();
+            const auto proController = reinterpret_cast<WPADStatusProController *>(data);
+            extBtnTracker.suppressButtons(proController->buttons);
             break;
         }
     }
+    // Finish button suppression logic.
 }
 
 ButtonComboInfoIF *ButtonComboManager::GetComboInfoForHandle(const ButtonComboModule_ComboHandle handle) const {
+    std::lock_guard lock(mMutex);
     for (const auto &combo : mCombos) {
         if (combo->getHandle() == handle) {
             return combo.get();
@@ -620,9 +626,7 @@ ButtonComboModule_Error ButtonComboManager::UpdateButtonCombo(const ButtonComboM
     comboInfo->setStatus(CheckComboStatus(*comboInfo));
     outComboStatus = comboInfo->getStatus();
 
-    const auto block = hasActiveComboWithTVButton();
-    VPADSetTVMenuInvalid(VPAD_CHAN_0, block);
-    VPADSetTVMenuInvalid(VPAD_CHAN_1, block);
+    updateTVMenuBlocking();
 
     return BUTTON_COMBO_MODULE_ERROR_SUCCESS;
 }
@@ -669,7 +673,7 @@ ButtonComboModule_Error ButtonComboManager::GetButtonComboInfoEx(const ButtonCom
     std::lock_guard lock(mMutex);
     const auto *comboInfo = GetComboInfoForHandle(handle);
     if (!comboInfo) {
-        DEBUG_FUNCTION_LINE_ERR("ButtonComboModule_GetButtonComboInfo failed to get manager for handle %08X", handle);
+        DEBUG_FUNCTION_LINE_ERR("ButtonComboModule_GetButtonComboInfo failed to get manager for handle %p", handle.handle);
         return BUTTON_COMBO_MODULE_ERROR_INVALID_ARGUMENT;
     }
     outOptions = comboInfo->getComboInfoEx();
@@ -696,7 +700,7 @@ ButtonComboModule_Error ButtonComboManager::DetectButtonCombo_Blocking(const But
     }
 
     if (options.holdComboForInMs == 0 || options.holdAbortForInMs == 0 || options.abortButtonCombo == 0) {
-        DEBUG_FUNCTION_LINE_WARN("Failed to detect button combo: Invalid params. holdComboFor: %s ms, holdAbortFor: %d ms, abortButtonCombo: %08X", options.holdComboForInMs, options.holdAbortForInMs, options.abortButtonCombo);
+        DEBUG_FUNCTION_LINE_WARN("Failed to detect button combo: Invalid params. holdComboFor: %d ms, holdAbortFor: %d ms, abortButtonCombo: %08X", options.holdComboForInMs, options.holdAbortForInMs, options.abortButtonCombo);
         return BUTTON_COMBO_MODULE_ERROR_INVALID_ARGUMENT;
     }
 
