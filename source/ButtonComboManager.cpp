@@ -10,8 +10,8 @@
 #include <padscore/kpad.h>
 
 #include <algorithm>
-#include <ranges>
 #include <span>
+#include <ranges>
 #include <vector>
 
 namespace {
