@@ -10,8 +10,8 @@
 #include <padscore/kpad.h>
 
 #include <algorithm>
-#include <span>
 #include <ranges>
+#include <span>
 #include <vector>
 
 namespace {
@@ -412,6 +412,7 @@ void ButtonComboManager::UpdateInputVPAD(const VPADChan chan, VPADStatus *buffer
         return;
     }
 
+    // When button proc mode is loose, only the most recent button state matters.
     bool buttonsAreLoose = VPADGetButtonProcMode(chan) == 0;
     int comboStatus = -1;
 
@@ -532,7 +533,7 @@ void ButtonComboManager::UpdateInputWPAD(const WPADChan chan, WPADStatus *data) 
     // Begin button suppression logic.
     int comboStatus = UpdateInputsLocked(controller, std::span(&pressedButtons, 1));
     if (comboStatus != -1) {
-        // A button was activated, let's suppress all trigger buttons.
+        // A combo was activated, let's suppress all trigger buttons.
         coreBtnTracker.blockTriggered();
         extBtnTracker.blockTriggered();
     }
@@ -732,7 +733,7 @@ ButtonComboModule_Error ButtonComboManager::DetectButtonCombo_Blocking(const But
     ButtonComboModule_Error result = BUTTON_COMBO_MODULE_ERROR_UNKNOWN_ERROR;
     while (true) {
         uint32_t buttonsHold      = 0;
-        uint32_t buttonsHoldAbort = 0;
+        [[maybe_unused]] uint32_t buttonsHoldAbort = 0;
         for (int i = 0; i < 2; i++) {
             VPADReadError vpad_error  = VPAD_READ_UNINITIALIZED;
             VPADStatus vpad_data      = {};
@@ -796,7 +797,7 @@ ButtonComboModule_Error ButtonComboManager::DetectButtonCombo_Blocking(const But
         }
 
         if (holdFor >= holdForTarget) {
-            DEBUG_FUNCTION_LINE_INFO("Detected button combo %08X", lastHold);
+            DEBUG_FUNCTION_LINE("Detected button combo %08X", lastHold);
             outButtonCombo = static_cast<ButtonComboModule_Buttons>(lastHold);
             result         = BUTTON_COMBO_MODULE_ERROR_SUCCESS;
             break;

@@ -13,9 +13,9 @@ namespace TVMenuManager {
     namespace {
 
         ButtonComboModule_ComboHandle sComboHandle;
-        // Note: we need to wait a bit to enable the TV menu, otherwise it shows up on the
+        // NOTE: We need to wait a bit to enable the TV menu, otherwise it shows up on the
         // first press. The sTVPressTime variable is used to keep track of how much time
-        // has passedsince the last TV button press.
+        // has passed since the last TV button press.
         OSTime sPressTime[2];
         bool sIsBlocked[2];
 
@@ -43,7 +43,7 @@ namespace TVMenuManager {
                     return;
             }
 
-            // OSReport("TV pressed\n");
+            DEBUG_FUNCTION_LINE("TV pressed");
 
             sPressTime[channel] = OSGetSystemTime();
 
@@ -84,7 +84,7 @@ namespace TVMenuManager {
         // We wait a bit to enable the TV menu, so it doesn't show up on the first press.
         const OSTime menuDelay = OSMillisecondsToTicks(50);
         if (elapsed >= menuDelay && isBlocked) {
-            OSReport("Unblocking the TV menu on VPAD %d\n", int(channel));
+            DEBUG_FUNCTION_LINE("Unblocking the TV menu on VPAD %d", int(channel));
             setBlockState(channel, false);
             OSMemoryBarrier();
             return;
@@ -93,7 +93,7 @@ namespace TVMenuManager {
         // If too much time passed, and the TV menu is not open, block it again (if needed.)
         const OSTime timeout = OSMillisecondsToTicks(500);
         if (elapsed > timeout && !VPADGetTVMenuStatus(channel)) {
-            OSReport("TV button timeout reached on VPAD %d\n", int(channel));
+            DEBUG_FUNCTION_LINE("TV button timeout reached on VPAD %d", int(channel));
             updateBlockState(channel);
             resetTimeouts(channel);
             OSMemoryBarrier();
@@ -104,9 +104,9 @@ namespace TVMenuManager {
         bool shouldBlock = false;
         if (gButtonComboManager)
             shouldBlock = gButtonComboManager->hasActiveComboWithTVButton();
-        OSReport("Update block state on VPAD %d to %s\n",
-                 int(channel),
-                 shouldBlock ? "blocked" : "unblocked");
+        DEBUG_FUNCTION_LINE("Update block state on VPAD %d to %s",
+                            int(channel),
+                            shouldBlock ? "blocked" : "unblocked");
         setBlockState(channel, shouldBlock);
         OSMemoryBarrier();
     }
