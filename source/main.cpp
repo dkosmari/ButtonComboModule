@@ -1,6 +1,5 @@
 #include "ButtonComboManager.h"
 #include "TVOverlayManager.h"
-#include "export.h"
 #include "function_patches.h"
 #include "globals.h"
 #include "logger.h"
@@ -16,7 +15,7 @@ WUMS_MODULE_EXPORT_NAME("homebrew_buttoncombo");
 WUMS_MODULE_SKIP_INIT_FINI();
 WUMS_DEPENDS_ON(homebrew_functionpatcher);
 
-#define MODULE_VERSION "v0.1.0"
+#define MODULE_VERSION "v0.2.1"
 
 WUMS_INITIALIZE() {
     initLogging();
@@ -36,13 +35,13 @@ WUMS_INITIALIZE() {
 
     gButtonComboManager = std::make_unique<ButtonComboManager>();
 
-    registerTVCombo();
+    TVOverlayManager::RegisterCombo();
 
     deinitLogging();
 }
 
 WUMS_DEINITIALIZE() {
-    unregisterTVCombo();
+    TVOverlayManager::UnregisterCombo();
     gButtonComboManager.reset();
 }
 

@@ -1,6 +1,7 @@
 #include "ButtonComboManager.h"
 #include "ButtonComboInfoDown.h"
 #include "ButtonComboInfoHold.h"
+#include "TVOverlayManager.h"
 #include "logger.h"
 
 #include <buttoncombo/defines.h>
@@ -9,6 +10,7 @@
 #include <padscore/kpad.h>
 
 #include <algorithm>
+#include <span>
 #include <vector>
 
 namespace {
@@ -288,11 +290,6 @@ std::optional<std::shared_ptr<ButtonComboInfoIF>> ButtonComboManager::CreateComb
         err = BUTTON_COMBO_MODULE_ERROR_INCOMPATIBLE_OPTIONS_VERSION;
         return std::nullopt;
     }
-    if (options.buttonComboOptions.basicCombo.combo == 0 ||
-        options.buttonComboOptions.basicCombo.controllerMask == BUTTON_COMBO_MODULE_CONTROLLER_NONE) {
-        err = BUTTON_COMBO_MODULE_ERROR_INVALID_COMBO;
-        return std::nullopt;
-    }
     if (options.callbackOptions.callback == nullptr) {
         err = BUTTON_COMBO_MODULE_ERROR_INVALID_ARGUMENT;
         return std::nullopt;
@@ -302,7 +299,7 @@ std::optional<std::shared_ptr<ButtonComboInfoIF>> ButtonComboManager::CreateComb
     switch (options.buttonComboOptions.type) {
         case BUTTON_COMBO_MODULE_COMBO_TYPE_HOLD_OBSERVER:
             observer = true;
-            __attribute__((fallthrough));
+            [[fallthrough]];
         case BUTTON_COMBO_MODULE_COMBO_TYPE_HOLD: {
             if (options.buttonComboOptions.optionalHoldForXMs == 0) {
                 err = BUTTON_COMBO_MODULE_ERROR_DURATION_MISSING;
@@ -319,7 +316,7 @@ std::optional<std::shared_ptr<ButtonComboInfoIF>> ButtonComboManager::CreateComb
         }
         case BUTTON_COMBO_MODULE_COMBO_TYPE_PRESS_DOWN_OBSERVER:
             observer = true;
-            __attribute__((fallthrough));
+            [[fallthrough]];
         case BUTTON_COMBO_MODULE_COMBO_TYPE_PRESS_DOWN: {
             err = BUTTON_COMBO_MODULE_ERROR_SUCCESS;
             return std::make_shared<ButtonComboInfoDown>(options.metaOptions.label,
@@ -339,7 +336,7 @@ std::optional<std::shared_ptr<ButtonComboInfoIF>> ButtonComboManager::CreateComb
 
 bool ButtonComboManager::hasActiveComboWithTVButton() {
     std::lock_guard lock(mMutex);
-    return std::ranges::any_of(mCombos, [](const auto &combo) { return combo->getStatus() == BUTTON_COMBO_MODULE_COMBO_STATUS_VALID && combo->getCombo() & BCMPAD_BUTTON_TV; });
+    return std::ranges::any_of(mCombos, [](const auto &combo) { return combo->getStatus() == BUTTON_COMBO_MODULE_COMBO_STATUS_VALID && combo->getCombo() & BCMPAD_BUTTON_TV && !combo->isObserver(); });
 }
 
 ButtonComboModule_ComboStatus ButtonComboManager::CheckComboStatus(const ButtonComboInfoIF &other) {
@@ -367,20 +364,21 @@ void ButtonComboManager::AddCombo(std::shared_ptr<ButtonComboInfoIF> newComboInf
     outHandle = newComboInfo->getHandle();
     mCombos.emplace_front(std::move(newComboInfo));
 
-    const auto block = hasActiveComboWithTVButton();
-    VPADSetTVMenuInvalid(VPAD_CHAN_0, block);
-    VPADSetTVMenuInvalid(VPAD_CHAN_1, block);
+    TVOverlayManager::UpdateBlocking();
 }
 
 ButtonComboModule_Error ButtonComboManager::RemoveCombo(ButtonComboModule_ComboHandle handle) {
     std::lock_guard lock(mMutex);
-    if (!remove_first_if(mCombos, [handle](const auto &combo) { return combo->getHandle() == handle; })) {
-        DEBUG_FUNCTION_LINE_WARN("Failed to remove combo by handle %08X", handle);
-    } else {
-        const auto block = hasActiveComboWithTVButton();
 
-        VPADSetTVMenuInvalid(VPAD_CHAN_0, block);
-        VPADSetTVMenuInvalid(VPAD_CHAN_1, block);
+    if (mIsIterating) {
+        mCombosToRemove.push_back(handle);
+        return BUTTON_COMBO_MODULE_ERROR_SUCCESS;
+    }
+
+    if (!remove_first_if(mCombos, [handle](const auto &combo) { return combo->getHandle() == handle; })) {
+        DEBUG_FUNCTION_LINE_WARN("Failed to remove combo by handle %p", handle.handle);
+    } else {
+        TVOverlayManager::UpdateBlocking();
     }
 
     return BUTTON_COMBO_MODULE_ERROR_SUCCESS;
@@ -431,12 +429,30 @@ void ButtonComboManager::UpdateInputVPAD(const VPADChan chan, const VPADStatus *
             mVPADButtonBuffer[usedBufferSize - i - 1] = remapVPADButtons(buffer[i].hold);
         }
 
-        for (const auto &combo : mCombos) {
-            if (combo->getStatus() != BUTTON_COMBO_MODULE_COMBO_STATUS_VALID) {
-                continue;
-            }
-            combo->UpdateInput(controller, std::span(mVPADButtonBuffer.data(), usedBufferSize));
+        UpdateInputsLocked(controller, std::span(mVPADButtonBuffer.data(), usedBufferSize));
+    }
+}
+
+void ButtonComboManager::UpdateInputsLocked(const ButtonComboModule_ControllerTypes controller, const std::span<uint32_t> pressedButtons) {
+    std::lock_guard lock(mMutex);
+    mIsIterating++;
+    for (const auto &combo : mCombos) {
+        if (combo->getStatus() != BUTTON_COMBO_MODULE_COMBO_STATUS_VALID) {
+            continue;
         }
+        combo->UpdateInput(controller, pressedButtons);
+    }
+    mIsIterating--;
+
+    // Remove pending removals if existing
+    if (mIsIterating == 0 && !mCombosToRemove.empty()) {
+        for (auto handle : mCombosToRemove) {
+            remove_first_if(mCombos, [handle](const auto &combo) { return combo->getHandle() == handle; });
+        }
+        mCombosToRemove.clear();
+
+        // Update TV Menu blocking status once after all removals
+        TVOverlayManager::UpdateBlocking();
     }
 }
 
@@ -479,18 +495,12 @@ void ButtonComboManager::UpdateInputWPAD(const WPADChan chan, WPADStatus *data) 
         default:
             return;
     }
-    {
-        std::lock_guard lock(mMutex);
-        for (const auto &combo : mCombos) {
-            if (combo->getStatus() != BUTTON_COMBO_MODULE_COMBO_STATUS_VALID) {
-                continue;
-            }
-            combo->UpdateInput(controller, std::span(&pressedButtons, 1));
-        }
-    }
+
+    UpdateInputsLocked(controller, std::span(&pressedButtons, 1));
 }
 
 ButtonComboInfoIF *ButtonComboManager::GetComboInfoForHandle(const ButtonComboModule_ComboHandle handle) const {
+    std::lock_guard lock(mMutex);
     for (const auto &combo : mCombos) {
         if (combo->getHandle() == handle) {
             return combo.get();
@@ -554,9 +564,7 @@ ButtonComboModule_Error ButtonComboManager::UpdateButtonCombo(const ButtonComboM
     comboInfo->setStatus(CheckComboStatus(*comboInfo));
     outComboStatus = comboInfo->getStatus();
 
-    const auto block = hasActiveComboWithTVButton();
-    VPADSetTVMenuInvalid(VPAD_CHAN_0, block);
-    VPADSetTVMenuInvalid(VPAD_CHAN_1, block);
+    TVOverlayManager::UpdateBlocking();
 
     return BUTTON_COMBO_MODULE_ERROR_SUCCESS;
 }
@@ -603,7 +611,7 @@ ButtonComboModule_Error ButtonComboManager::GetButtonComboInfoEx(const ButtonCom
     std::lock_guard lock(mMutex);
     const auto *comboInfo = GetComboInfoForHandle(handle);
     if (!comboInfo) {
-        DEBUG_FUNCTION_LINE_ERR("ButtonComboModule_GetButtonComboInfo failed to get manager for handle %08X", handle);
+        DEBUG_FUNCTION_LINE_ERR("ButtonComboModule_GetButtonComboInfo failed to get manager for handle %p", handle.handle);
         return BUTTON_COMBO_MODULE_ERROR_INVALID_ARGUMENT;
     }
     outOptions = comboInfo->getComboInfoEx();
@@ -630,7 +638,7 @@ ButtonComboModule_Error ButtonComboManager::DetectButtonCombo_Blocking(const But
     }
 
     if (options.holdComboForInMs == 0 || options.holdAbortForInMs == 0 || options.abortButtonCombo == 0) {
-        DEBUG_FUNCTION_LINE_WARN("Failed to detect button combo: Invalid params. holdComboFor: %s ms, holdAbortFor: %d ms, abortButtonCombo: %08X", options.holdComboForInMs, options.holdAbortForInMs, options.abortButtonCombo);
+        DEBUG_FUNCTION_LINE_WARN("Failed to detect button combo: Invalid params. holdComboFor: %d ms, holdAbortFor: %d ms, abortButtonCombo: %08X", options.holdComboForInMs, options.holdAbortForInMs, options.abortButtonCombo);
         return BUTTON_COMBO_MODULE_ERROR_INVALID_ARGUMENT;
     }
 
@@ -726,7 +734,7 @@ ButtonComboModule_Error ButtonComboManager::DetectButtonCombo_Blocking(const But
         }
 
         if (holdFor >= holdForTarget) {
-            DEBUG_FUNCTION_LINE_INFO("Detected button combo %08X", lastHold);
+            DEBUG_FUNCTION_LINE("Detected button combo %08X", lastHold);
             outButtonCombo = static_cast<ButtonComboModule_Buttons>(lastHold);
             result         = BUTTON_COMBO_MODULE_ERROR_SUCCESS;
             break;

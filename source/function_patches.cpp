@@ -12,15 +12,17 @@
 DECL_FUNCTION(int32_t, VPADRead, VPADChan chan, VPADStatus *buffer, uint32_t buffer_size, VPADReadError *error) {
     VPADReadError real_error;
     const int32_t result = real_VPADRead(chan, buffer, buffer_size, &real_error);
-    if (result > 0 && real_error == VPAD_READ_SUCCESS && gButtonComboManager) {
-        gButtonComboManager->UpdateInputVPAD(chan, buffer, result > static_cast<int32_t>(buffer_size) ? buffer_size : result, error);
-    }
 
+    if (result > 0 && real_error == VPAD_READ_SUCCESS) {
+        if (const auto comboManager = gButtonComboManager) {
+            comboManager->UpdateInputVPAD(chan, buffer, result > static_cast<int32_t>(buffer_size) ? buffer_size : result, error);
+        }
+    }
     if (error) {
         *error = real_error;
     }
 
-    updateTVStatus(chan);
+    TVOverlayManager::UpdateVPAD(chan);
 
     return result;
 }
@@ -28,10 +30,11 @@ DECL_FUNCTION(int32_t, VPADRead, VPADChan chan, VPADStatus *buffer, uint32_t buf
 DECL_FUNCTION(void, WPADRead, WPADChan chan, WPADStatus *data) {
     real_WPADRead(chan, data);
 
-    if (gButtonComboManager) {
-        gButtonComboManager->UpdateInputWPAD(chan, data);
+    if (const auto comboManager = gButtonComboManager) {
+        comboManager->UpdateInputWPAD(chan, data);
     }
 }
+
 struct WUT_PACKED CCRCDCCallbackData {
     uint32_t attached;
     VPADChan chan;
@@ -42,10 +45,10 @@ DECL_FUNCTION(void, __VPADBASEAttachCallback, CCRCDCCallbackData *data, void *co
     real___VPADBASEAttachCallback(data, context);
 
     if (data) {
-        if (data->attached && gButtonComboManager) {
-            initTVStatus(data->chan, gButtonComboManager->hasActiveComboWithTVButton());
+        if (data->attached) {
+            TVOverlayManager::InitVPAD(data->chan);
         } else {
-            resetTVStatus(data->chan);
+            TVOverlayManager::ResetVPAD(data->chan);
         }
     }
 }
