@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <vector>
 
 #include <cstdint>
@@ -21,15 +22,12 @@ public:
 
     static std::optional<std::shared_ptr<ButtonComboInfoIF>> CreateComboInfo(const ButtonComboModule_ComboOptions &options, ButtonComboModule_Error &err);
 
-    [[nodiscard]] ButtonComboInfoIF *GetComboInfoForHandle(ButtonComboModule_ComboHandle handle) const;
-
-    void UpdateInputVPAD(VPADChan chan, VPADStatus *buffer, uint32_t bufferSize, const VPADReadError *error);
+    void UpdateInputVPAD(VPADChan chan, std::span<VPADStatus> buffer, const VPADReadError *error);
+    void UpdateTVMenuBlocking();
 
     void UpdateInputWPAD(WPADChan chan, WPADStatus *data);
 
     bool hasActiveComboWithTVButton();
-
-    ButtonComboModule_ComboStatus CheckComboStatus(const ButtonComboInfoIF &other);
 
     void AddCombo(std::shared_ptr<ButtonComboInfoIF> newComboInfo, ButtonComboModule_ComboHandle &outHandle, ButtonComboModule_ComboStatus &outStatus);
 
@@ -58,14 +56,21 @@ public:
     ButtonComboModule_Error DetectButtonCombo_Blocking(const ButtonComboModule_DetectButtonComboOptions &options, ButtonComboModule_Buttons &outButtonCombo);
 
 private:
+    [[nodiscard]] ButtonComboInfoIF *GetComboInfoForHandle(ButtonComboModule_ComboHandle handle) const;
+
+    int UpdateInputsLocked(ButtonComboModule_ControllerTypes controller, std::span<uint32_t> pressedButtons);
+
+    ButtonComboModule_ComboStatus CheckComboStatus(const ButtonComboInfoIF &other);
+
     std::forward_list<std::shared_ptr<ButtonComboInfoIF>> mCombos;
+    std::vector<ButtonComboModule_ComboHandle> mCombosToRemove;
+    int mIsIterating = 0;
     std::vector<uint32_t> mVPADButtonBuffer;
-    std::mutex mMutex;
-    std::mutex mDetectButtonsMutex;
+    mutable std::recursive_mutex mMutex;
+    std::recursive_mutex mDetectButtonsMutex;
     bool mInButtonComboDetection = false;
 
     std::array<uint32_t, 2> mVPADSuppressed{};
     std::array<ButtonTracker<uint16_t>, 7> mWPADCoreBtns;
     std::array<ButtonTracker<uint32_t>, 7> mWPADExtBtns;
-    std::array<uint8_t, 7> mWPADExtension{};
 };

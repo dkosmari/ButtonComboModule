@@ -31,7 +31,7 @@ int ButtonComboInfoDown::UpdateInput(
 
     auto &[prevButtonCombo] = mHoldInformation[chanIndex];
 
-    DEBUG_FUNCTION_LINE_VERBOSE("[PRESS DOWN] Check button combo %08X on controller %08X (lastItem im pressedButtons (size %d) is %08X) for %s [%08X]", mCombo, controller, pressedButtons.size(), pressedButtons.back(), mLabel.c_str(), getHandle().handle);
+    DEBUG_FUNCTION_LINE_VERBOSE("[PRESS DOWN] Check button combo %08X on controller %08X (lastItem im pressedButtons (size %d) is %08X) for %s [%p]", mCombo, controller, pressedButtons.size(), pressedButtons.back(), mLabel.c_str(), getHandle().handle);
 
     int activatedIndex = -1;
     for (auto [index, pressedButton] : std::views::enumerate(pressedButtons)) {
@@ -41,11 +41,11 @@ int ButtonComboInfoDown::UpdateInput(
 
         if (buttonsPressedChanged && buttonsPressedMatchCombo && !prevButtonsIncludedCombo) {
             if (mCallback != nullptr) {
-                DEBUG_FUNCTION_LINE("Calling callback [%08X](controller: %08X, context: %08X) for \"%s\" [handle: %08X], pressed down %08X", mCallback, controller, mContext, mLabel.c_str(), getHandle().handle, mCombo);
+                DEBUG_FUNCTION_LINE("Calling callback [%p](controller: %08X, context: %p) for \"%s\" [handle: %p], pressed down %08X", mCallback, controller, mContext, mLabel.c_str(), getHandle().handle, mCombo);
                 mCallback(controller, getHandle(), mContext);
                 activatedIndex = index;
             } else {
-                DEBUG_FUNCTION_LINE_WARN("Callback was null for combo %08X", getHandle());
+                DEBUG_FUNCTION_LINE_WARN("Callback was null for combo %p", getHandle().handle);
             }
         }
         prevButtonCombo = pressedButton;
