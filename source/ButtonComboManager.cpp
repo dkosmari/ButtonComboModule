@@ -397,12 +397,12 @@ ButtonComboModule_Error ButtonComboManager::GetButtonComboStatus(const ButtonCom
     return BUTTON_COMBO_MODULE_ERROR_SUCCESS;
 }
 
-void ButtonComboManager::UpdateInputVPAD(const VPADChan chan, VPADStatus *buffer, const uint32_t bufferSize, const VPADReadError *error) {
+void ButtonComboManager::UpdateInputVPAD(const VPADChan chan, std::span<VPADStatus> buffer, const VPADReadError *error) {
     if (chan < VPAD_CHAN_0 || chan > VPAD_CHAN_1) {
         DEBUG_FUNCTION_LINE_ERR("Invalid VPADChan");
         return;
     }
-    if (buffer == nullptr || !error || *error != VPAD_READ_SUCCESS) {
+    if (!buffer.data() || buffer.empty() || !error || *error != VPAD_READ_SUCCESS) {
         DEBUG_FUNCTION_LINE_ERR("Invalid buffer or error state");
         return;
     }
@@ -421,11 +421,11 @@ void ButtonComboManager::UpdateInputVPAD(const VPADChan chan, VPADStatus *buffer
         const auto controller = convert(chan);
 
         // Fix games like TP HD
-        mVPADButtonBuffer.resize(buttonsAreLoose ? 1 : bufferSize);
-
-        // the order of the "buffer" data is new -> old, but we want it to be in old -> new
-        for (std::size_t i = 0; i < mVPADButtonBuffer.size(); i++) {
-            std::views::reverse(mVPADButtonBuffer)[i] = remapVPADButtons(buffer[i].hold);
+        mVPADButtonBuffer.resize(buttonsAreLoose ? 1 : buffer.size());
+        // The order of buffer samples is new -> old, but we want it to be in old -> new.
+        for (auto [dst, src] : std::views::zip(mVPADButtonBuffer | std::views::reverse,
+                                               buffer)) {
+            dst = remapVPADButtons(src.hold);
         }
 
         comboStatus = UpdateInputsLocked(controller, mVPADButtonBuffer);
@@ -435,7 +435,7 @@ void ButtonComboManager::UpdateInputVPAD(const VPADChan chan, VPADStatus *buffer
     auto &suppressed = mVPADSuppressed[static_cast<unsigned>(chan)];
 
     // Check every buffer entry, from old to new.
-    for (int i = bufferSize - 1; i >= 0; --i) {
+    for (int i = buffer.size() - 1; i >= 0; --i) {
         auto& entry = buffer[i];
         if ((buttonsAreLoose && comboStatus != -1) || i == comboStatus) {
             // This is the entry that activated a combo, the triggers tell which buttons
@@ -453,7 +453,7 @@ void ButtonComboManager::UpdateInputVPAD(const VPADChan chan, VPADStatus *buffer
 }
 
 int ButtonComboManager::UpdateInputsLocked(const ButtonComboModule_ControllerTypes controller, const std::span<uint32_t> pressedButtons) {
-    int first_trigger = -1;
+    int when_triggered = -1;
     std::lock_guard lock(mMutex);
     mIsIterating++;
     for (const auto &combo : mCombos) {
@@ -462,8 +462,8 @@ int ButtonComboManager::UpdateInputsLocked(const ButtonComboModule_ControllerTyp
         }
         int idx = combo->UpdateInput(controller, pressedButtons);
         if (idx != -1) {
-            if (first_trigger == -1 || idx < first_trigger) {
-                first_trigger = idx;
+            if (when_triggered == -1 || idx < when_triggered) {
+                when_triggered = idx;
             }
         }
     }
@@ -479,7 +479,7 @@ int ButtonComboManager::UpdateInputsLocked(const ButtonComboModule_ControllerTyp
         // Update TV Menu blocking status once after all removals
         TVMenuManager::updateBlockState();
     }
-    return first_trigger;
+    return when_triggered;
 }
 
 void ButtonComboManager::UpdateInputWPAD(const WPADChan chan, WPADStatus *data) {
@@ -733,7 +733,8 @@ ButtonComboModule_Error ButtonComboManager::DetectButtonCombo_Blocking(const But
     ButtonComboModule_Error result = BUTTON_COMBO_MODULE_ERROR_UNKNOWN_ERROR;
     while (true) {
         uint32_t buttonsHold      = 0;
-        [[maybe_unused]] uint32_t buttonsHoldAbort = 0;
+        [[maybe_unused]]
+        uint32_t buttonsHoldAbort = 0;
         for (int i = 0; i < 2; i++) {
             VPADReadError vpad_error  = VPAD_READ_UNINITIALIZED;
             VPADStatus vpad_data      = {};

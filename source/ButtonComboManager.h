@@ -9,18 +9,20 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <vector>
 
 #include <cstdint>
 #include <forward_list>
 
+#include "ButtonTracker.h"
 class ButtonComboManager {
 public:
     ButtonComboManager();
 
     static std::optional<std::shared_ptr<ButtonComboInfoIF>> CreateComboInfo(const ButtonComboModule_ComboOptions &options, ButtonComboModule_Error &err);
 
-    void UpdateInputVPAD(VPADChan chan, VPADStatus *buffer, uint32_t bufferSize, const VPADReadError *error);
+    void UpdateInputVPAD(VPADChan chan, std::span<VPADStatus> buffer, const VPADReadError *error);
 
     void UpdateInputWPAD(WPADChan chan, WPADStatus *data);
 
@@ -70,5 +72,4 @@ private:
     std::array<uint32_t, 2> mVPADSuppressed{};
     std::array<ButtonTracker<uint16_t>, 7> mWPADCoreBtns;
     std::array<ButtonTracker<uint32_t>, 7> mWPADExtBtns;
-    std::array<uint8_t, 7> mWPADExtension{};
 };
