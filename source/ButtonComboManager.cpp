@@ -1,8 +1,8 @@
 #include "ButtonComboManager.h"
 #include "ButtonComboInfoDown.h"
 #include "ButtonComboInfoHold.h"
+#include "TVOverlayManager.h"
 #include "logger.h"
-#include "TVMenuManager.h"
 
 #include <buttoncombo/defines.h>
 
@@ -337,7 +337,7 @@ std::optional<std::shared_ptr<ButtonComboInfoIF>> ButtonComboManager::CreateComb
 
 bool ButtonComboManager::hasActiveComboWithTVButton() {
     std::lock_guard lock(mMutex);
-    return std::ranges::any_of(mCombos, [](const auto &combo) { return (combo->getStatus() == BUTTON_COMBO_MODULE_COMBO_STATUS_VALID) && (combo->getCombo() & BCMPAD_BUTTON_TV) && (!combo->isObserver()); });
+    return std::ranges::any_of(mCombos, [](const auto &combo) { return combo->getStatus() == BUTTON_COMBO_MODULE_COMBO_STATUS_VALID && combo->getCombo() & BCMPAD_BUTTON_TV && !combo->isObserver(); });
 }
 
 ButtonComboModule_ComboStatus ButtonComboManager::CheckComboStatus(const ButtonComboInfoIF &other) {
@@ -365,7 +365,7 @@ void ButtonComboManager::AddCombo(std::shared_ptr<ButtonComboInfoIF> newComboInf
     outHandle = newComboInfo->getHandle();
     mCombos.emplace_front(std::move(newComboInfo));
 
-    TVMenuManager::updateBlockState();
+    TVOverlayManager::UpdateBlocking();
 }
 
 ButtonComboModule_Error ButtonComboManager::RemoveCombo(ButtonComboModule_ComboHandle handle) {
@@ -379,7 +379,7 @@ ButtonComboModule_Error ButtonComboManager::RemoveCombo(ButtonComboModule_ComboH
     if (!remove_first_if(mCombos, [handle](const auto &combo) { return combo->getHandle() == handle; })) {
         DEBUG_FUNCTION_LINE_WARN("Failed to remove combo by handle %p", handle.handle);
     } else {
-        TVMenuManager::updateBlockState();
+        TVOverlayManager::UpdateBlocking();
     }
 
     return BUTTON_COMBO_MODULE_ERROR_SUCCESS;
@@ -477,7 +477,7 @@ int ButtonComboManager::UpdateInputsLocked(const ButtonComboModule_ControllerTyp
         mCombosToRemove.clear();
 
         // Update TV Menu blocking status once after all removals
-        TVMenuManager::updateBlockState();
+        TVOverlayManager::UpdateBlocking();
     }
     return when_triggered;
 }
@@ -627,7 +627,7 @@ ButtonComboModule_Error ButtonComboManager::UpdateButtonCombo(const ButtonComboM
     comboInfo->setStatus(CheckComboStatus(*comboInfo));
     outComboStatus = comboInfo->getStatus();
 
-    TVMenuManager::updateBlockState();
+    TVOverlayManager::UpdateBlocking();
 
     return BUTTON_COMBO_MODULE_ERROR_SUCCESS;
 }

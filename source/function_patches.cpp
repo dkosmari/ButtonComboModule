@@ -1,6 +1,6 @@
 #include "ButtonComboInfo.h"
 #include "ButtonComboManager.h"
-#include "TVMenuManager.h"
+#include "TVOverlayManager.h"
 #include "globals.h"
 
 #include <function_patcher/fpatching_defines.h>
@@ -14,7 +14,7 @@ DECL_FUNCTION(int32_t, VPADRead, VPADChan chan, VPADStatus *buffer, uint32_t buf
     const int32_t result = real_VPADRead(chan, buffer, buffer_size, &real_error);
 
     if (result > 0 && real_error == VPAD_READ_SUCCESS) {
-        if (const auto comboManager = gButtonComboManager; comboManager) {
+        if (const auto comboManager = gButtonComboManager) {
             comboManager->UpdateInputVPAD(chan, std::span(buffer, result), error);
         }
     }
@@ -22,7 +22,7 @@ DECL_FUNCTION(int32_t, VPADRead, VPADChan chan, VPADStatus *buffer, uint32_t buf
         *error = real_error;
     }
 
-    TVMenuManager::updateTimer(chan);
+    TVOverlayManager::UpdateVPAD(chan);
 
     return result;
 }
@@ -30,10 +30,11 @@ DECL_FUNCTION(int32_t, VPADRead, VPADChan chan, VPADStatus *buffer, uint32_t buf
 DECL_FUNCTION(void, WPADRead, WPADChan chan, WPADStatus *data) {
     real_WPADRead(chan, data);
 
-    if (const auto comboManager = gButtonComboManager; comboManager) {
+    if (const auto comboManager = gButtonComboManager) {
         comboManager->UpdateInputWPAD(chan, data);
     }
 }
+
 struct WUT_PACKED CCRCDCCallbackData {
     uint32_t attached;
     VPADChan chan;
@@ -44,7 +45,11 @@ DECL_FUNCTION(void, __VPADBASEAttachCallback, CCRCDCCallbackData *data, void *co
     real___VPADBASEAttachCallback(data, context);
 
     if (data) {
-        TVMenuManager::updateBlockState(data->chan);
+        if (data->attached) {
+            TVOverlayManager::InitVPAD(data->chan);
+        } else {
+            TVOverlayManager::ResetVPAD(data->chan);
+        }
     }
 }
 

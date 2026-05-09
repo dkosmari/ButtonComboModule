@@ -1,6 +1,5 @@
 #include "ButtonComboManager.h"
-#include "TVMenuManager.h"
-#include "export.h"
+#include "TVOverlayManager.h"
 #include "function_patches.h"
 #include "globals.h"
 #include "logger.h"
@@ -36,13 +35,13 @@ WUMS_INITIALIZE() {
 
     gButtonComboManager = std::make_unique<ButtonComboManager>();
 
-    TVMenuManager::registerCombo();
+    TVOverlayManager::RegisterCombo();
 
     deinitLogging();
 }
 
 WUMS_DEINITIALIZE() {
-    TVMenuManager::unregisterCombo();
+    TVOverlayManager::UnregisterCombo();
     gButtonComboManager.reset();
 }
 
